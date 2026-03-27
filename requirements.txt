@@ -1,0 +1,4 @@
+sqlalchemy==2.0.48
+python-dotenv==1.1.1
+psycopg2-binary==2.9.11
+litellm==1.82.6
