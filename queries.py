@@ -2,113 +2,151 @@ queries = [
     {
         "id": "Q1",
         "query": """
-            SELECT p.name, AVG(g.test_grade) as avg_test_grade 
-            FROM professors p 
-            JOIN courses c ON p.id = c.professor_id 
-            JOIN grades g ON c.code = g.course_code AND c.year = g.course_year 
-            GROUP BY p.id, p.name 
-            ORDER BY avg_test_grade DESC 
-            LIMIT 3;
+            SELECT c.code, c.year, p.name, g.student_id, g.test_grade
+            FROM courses c
+            JOIN professors p ON c.professor_id = p.id
+            JOIN grades g ON c.code = g.course_code AND c.year = g.course_year
+            WHERE g.test_grade = (
+                SELECT MAX(g2.test_grade)
+                FROM grades g2
+                WHERE g2.course_code = c.code AND g2.course_year = c.year
+            );
         """
     },
     {
         "id": "Q2",
         "query": """
-            SELECT s.name, s.cohort 
-            FROM students s 
-            JOIN grades g ON s.id = g.student_id 
-            GROUP BY s.id, s.name, s.cohort 
-            HAVING COUNT(g.course_code) > 3 AND AVG(g.project_grade) > 8.0;
+            SELECT s.id, s.name, s.email
+            FROM students s
+            JOIN grades g ON s.id = g.student_id
+            JOIN courses c ON g.course_code = c.code AND g.course_year = c.year
+            JOIN professors p ON c.professor_id = p.id
+            WHERE p.department = 'Physics' AND g.test_grade > 9.0
+            UNION
+            SELECT s.id, s.name, s.email
+            FROM students s
+            JOIN grades g ON s.id = g.student_id
+            JOIN courses c ON g.course_code = c.code AND g.course_year = c.year
+            JOIN professors p ON c.professor_id = p.id
+            WHERE p.department = 'Physics' AND g.project_grade > 9.0;
         """
     },
     {
         "id": "Q3",
         "query": """
-            SELECT s.name 
-            FROM students s 
-            WHERE s.cohort = 2021 AND s.id NOT IN (
-                SELECT g.student_id 
-                FROM grades g 
-                JOIN courses c ON g.course_code = c.code AND g.course_year = c.year 
-                JOIN professors p ON c.professor_id = p.id 
-                WHERE p.department = 'Computer Science'
+            SELECT p.name, p.department
+            FROM professors p
+            WHERE p.id IN (
+                SELECT c.professor_id 
+                FROM courses c 
+                JOIN grades g ON c.code = g.course_code AND c.year = g.course_year 
+                WHERE g.test_grade < 5.0
+            )
+            AND p.id IN (
+                SELECT c.professor_id 
+                FROM courses c 
+                JOIN grades g ON c.code = g.course_code AND c.year = g.course_year 
+                WHERE g.project_grade < 5.0
             );
         """
     },
     {
         "id": "Q4",
         "query": """
-            WITH DeptEcts AS (
-                SELECT p.department, p.name, SUM(c.ects) as total_ects, 
-                       RANK() OVER(PARTITION BY p.department ORDER BY SUM(c.ects) DESC) as rnk 
-                FROM professors p 
-                JOIN courses c ON p.id = c.professor_id 
-                WHERE c.year = 2023 
-                GROUP BY p.department, p.id, p.name
-            ) 
-            SELECT department, name, total_ects 
-            FROM DeptEcts 
-            WHERE rnk = 1;
+            SELECT p.name, p.department
+            FROM professors p
+            WHERE p.id IN (
+                SELECT c.professor_id
+                FROM courses c
+                WHERE c.code IN (
+                    SELECT g.course_code
+                    FROM grades g
+                    JOIN students s ON g.student_id = s.id
+                    WHERE s.cohort = 2020
+                ) AND c.year IN (
+                    SELECT g.course_year
+                    FROM grades g
+                    JOIN students s ON g.student_id = s.id
+                    WHERE s.cohort = 2020
+                )
+            );
         """
     },
     {
         "id": "Q5",
         "query": """
-            SELECT course_code, course_year 
-            FROM grades 
-            GROUP BY course_code, course_year 
-            HAVING AVG(test_grade) < (SELECT AVG(test_grade) FROM grades);
+            SELECT 
+                CAST((SELECT COUNT(*) 
+                      FROM grades g 
+                      JOIN courses c ON g.course_code = c.code AND g.course_year = c.year 
+                      JOIN professors p ON c.professor_id = p.id 
+                      WHERE p.department = 'Computer Science' AND g.test_grade >= 8.0) AS DECIMAL(15, 4))
+                / 
+                CAST((SELECT COUNT(*) 
+                      FROM grades g 
+                      JOIN courses c ON g.course_code = c.code AND g.course_year = c.year 
+                      JOIN professors p ON c.professor_id = p.id 
+                      WHERE p.department = 'Computer Science' AND g.test_grade < 5.5) AS DECIMAL(15, 4)) AS excellence_ratio;
         """
     },
     {
         "id": "Q6",
         "query": """
-            SELECT s.name 
-            FROM students s 
-            JOIN grades g ON s.id = g.student_id 
-            GROUP BY s.id, s.name 
-            HAVING MAX(g.project_grade) = 10.0 AND AVG(g.test_grade) < 6.0;
+            SELECT g.course_code, g.course_year, SUM(g.test_grade) as total_test_score
+            FROM grades g
+            JOIN courses c ON g.course_code = c.code AND g.course_year = c.year
+            JOIN professors p ON c.professor_id = p.id
+            WHERE p.department = 'Mathematics' AND g.test_grade > 8.0
+            GROUP BY g.course_code, g.course_year
+            HAVING SUM(g.test_grade) > (
+                SELECT SUM(g2.test_grade) 
+                FROM grades g2 
+                JOIN courses c2 ON g2.course_code = c2.code AND g2.course_year = c2.year 
+                JOIN professors p2 ON c2.professor_id = p2.id 
+                WHERE p2.department = 'Mathematics' AND g2.test_grade > 8.0 AND g2.course_year = 2022
+            );
         """
     },
     {
         "id": "Q7",
         "query": """
-            SELECT DISTINCT p.name 
-            FROM professors p 
-            JOIN courses c ON p.id = c.professor_id 
-            WHERE c.year = 2022 AND p.id NOT IN (
-                SELECT professor_id FROM courses WHERE year = 2023
+            SELECT c.code, c.year, c.ects
+            FROM courses c
+            WHERE (c.code, c.year) NOT IN (
+                SELECT course_code, course_year 
+                FROM grades
             );
         """
     },
     {
         "id": "Q8",
         "query": """
-            SELECT department 
-            FROM (
-                SELECT p.department, c.code 
-                FROM professors p 
-                JOIN courses c ON p.id = c.professor_id 
-                JOIN grades g ON c.code = g.course_code AND c.year = g.course_year 
-                WHERE c.year = 2023 
-                GROUP BY p.department, c.code 
-                HAVING AVG(g.project_grade) < 5.5
-            ) as low_performing_courses 
-            GROUP BY department 
-            HAVING COUNT(code) > 5;
+            SELECT g1.student_id, g1.course_code, g1.test_grade as grade_2022, g2.test_grade as grade_2023
+            FROM grades g1
+            JOIN grades g2 ON g1.student_id = g2.student_id AND g1.course_code = g2.course_code
+            WHERE g1.course_year = 2022 AND g2.course_year = 2023 
+            AND g1.test_grade > 9.0 AND g2.test_grade > 9.0;
         """
     },
     {
         "id": "Q9",
         "query": """
-            SELECT c.code, c.year, p.name as professor_name, 
-                   COUNT(g.student_id) as student_count, AVG(g.test_grade) as avg_test 
-            FROM courses c 
-            JOIN professors p ON c.professor_id = p.id 
-            JOIN grades g ON c.code = g.course_code AND c.year = g.course_year 
-            GROUP BY c.code, c.year, p.id, p.name 
-            HAVING COUNT(g.student_id) > 50 AND AVG(g.test_grade) > 7.5 
-            ORDER BY avg_test DESC;
+            SELECT t.department, SUM(t.project_grade) as DeptProjectRating
+            FROM (
+                SELECT p.department, c.code, c.year, g.project_grade
+                FROM professors p
+                JOIN courses c ON p.id = c.professor_id
+                JOIN grades g ON c.code = g.course_code AND c.year = g.course_year
+                WHERE g.test_grade > 8.0
+            ) t
+            JOIN (
+                SELECT p.department, COUNT(*) as num_courses
+                FROM professors p
+                JOIN courses c ON p.id = c.professor_id
+                GROUP BY p.department
+                HAVING COUNT(*) > 10
+            ) t2 ON t.department = t2.department
+            GROUP BY t.department;
         """
     }
 ]

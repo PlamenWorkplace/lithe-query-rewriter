@@ -1,12 +1,10 @@
 import os
 from dotenv import load_dotenv
 from litellm import completion
-from prompts import *
 import math
 import json
 from sqlalchemy import text, create_engine
 from sqlalchemy.exc import DatabaseError
-from queries import queries
 import time
 
 load_dotenv()
@@ -134,10 +132,35 @@ def rewrite_query(system_prompt: str, user_prompt: str, prompts_id: int = -1, ma
         ]
         llm_response = prompt_llm(messages)
 
+    print("\n" + "="*50)
+    print("🤖 LLM RAW RESPONSE:")
+    print("="*50)
     print(llm_response)
-    query_rewr = extract_sql_with_llm(llm_response)    
-    print(f"\n\n{query_rewr}\n\n")
+    print("="*50)
 
+    print("\n[MANUAL INPUT REQUIRED]")
+    print("Please copy and paste the extracted SQL query from the response above.")
+    print("When you are finished, type 'END' on a new line and press Enter:\n")
+    
+    user_lines = []
+    while True:
+        try:
+            line = input()
+            # Stop recording if you type 'END' (case-insensitive)
+            if line.strip().upper() == 'END':
+                break
+            if line.strip().upper() == 'SKIP':
+                raise RuntimeError(f"Skipping this query as per user request.")
+            user_lines.append(line)
+        except EOFError:
+            break
+
+    query_rewr = "\n".join(user_lines).strip()
+
+    # Alternatively automate the SQL extraction using the LLM itself if the sql is expected in the [REWRITTEN] section of the prompt
+    # query_rewr = extract_sql_with_llm(llm_response)    
+    # print(f"\n\n{query_rewr}\n\n")
+    
     if not query_rewr:
         return None, 0.0
     
@@ -172,60 +195,3 @@ def rewrite_query(system_prompt: str, user_prompt: str, prompts_id: int = -1, ma
             
     print("Maximum retries reached. Could not produce a valid SQL rewrite.")
     return None, 0.0
-
-
-if __name__ == "__main__":
-    data_p1 = []
-    data_p2 = []
-    data_p3 = []
-    data_p4 = []
-
-    for info in queries:
-        query_id = info.get("id")
-        query_orig = info.get("query")
-
-        print(f"\nEvaluating Query ID: {query_id}")
-        cost_orig = get_optimizer_cost(query_orig)
-        print(f"Original Cost: {cost_orig}")
-
-        print(f"\n--- Testing Basic Prompt 1 on {llm_model} ---")
-        system_1, user_1 = get_prompt_1(query_orig)
-        query_rewr_1, cost_rewr_1 = rewrite_query(system_1, user_1)
-        data_p1.append({"query_id": query_id, "original_cost": cost_orig, "rewritten_cost": cost_rewr_1})
-        print(f"Rewritten Cost (Prompt 1): {cost_rewr_1}")
-
-        print(f"\n--- Testing Basic Prompt 2 on {llm_model} ---")
-        system_2, user_2 = get_prompt_2(query_orig)
-        query_rewr_2, cost_rewr_2 = rewrite_query(system_2, user_2)
-        data_p2.append({"query_id": query_id, "original_cost": cost_orig, "rewritten_cost": cost_rewr_2})
-        print(f"Rewritten Cost (Prompt 2): {cost_rewr_2}")
-
-        print(f"\n--- Testing Basic Prompt 3 on {llm_model} ---")
-        system_3, user_3 = get_prompt_3(query_orig)
-        query_rewr_3, cost_rewr_3 = rewrite_query(system_3, user_3)
-        data_p3.append({"query_id": query_id, "original_cost": cost_orig, "rewritten_cost": cost_rewr_3})
-        print(f"Rewritten Cost (Prompt 3): {cost_rewr_3}")
-
-        print(f"\n--- Testing Basic Prompt 4 on {llm_model} ---")
-        query_rewr_4, cost_rewr_4 = rewrite_query(system_3, user_3, prompts_id=4)
-        data_p4.append({"query_id": query_id, "original_cost": cost_orig, "rewritten_cost": cost_rewr_4})
-        print(f"Rewritten Cost (Prompt 4): {cost_rewr_4}")
-
-
-    print("\n" + "="*40)
-    print("FINAL LITHE STATISTICS")
-    print("="*40)
-
-    datasets = [
-        ("Prompt 1", data_p1), 
-        ("Prompt 2", data_p2), 
-        ("Prompt 3", data_p3), 
-        ("Prompt 4", data_p4)
-    ]
-    
-    for name, dataset in datasets:
-        cpr, csgm = calculate_lithe_metrics(dataset)
-        print(f"\n--- {name} Results ---")
-        print(f"Total Queries Evaluated: {len(dataset)}")
-        print(f"Cost Productive Rewrites (CPR): {cpr}")
-        print(f"Cost Speedup Geometric Mean (CSGM): {csgm:.2f}")
