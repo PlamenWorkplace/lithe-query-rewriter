@@ -33,3 +33,9 @@ Thumbs.db
 # Logs and databases
 *.log
 *.sqlite3
+
+# Ignore all text files
+*.txt
+
+# But do not ignore requirements.txt
+!requirements.txt
