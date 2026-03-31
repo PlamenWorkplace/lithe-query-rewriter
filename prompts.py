@@ -100,3 +100,47 @@ Now consider the query and statistics given below and try to rewrite the query t
 {query_stats}
 [REWRITTEN]"""
     return system, user
+
+
+RULE_EXAMPLES = {
+    "R1": {
+        "orig": "SELECT * FROM (SELECT id FROM t WHERE val > 5) a JOIN (SELECT id FROM t WHERE val > 5) b ON a.id = b.id;",
+        "rewr": "WITH cte AS (SELECT id FROM t WHERE val > 5) SELECT * FROM cte a JOIN cte b ON a.id = b.id;",
+        "orig2": "SELECT name FROM emps WHERE dept_id IN (SELECT id FROM depts WHERE budget > 100) OR manager_id IN (SELECT id FROM depts WHERE budget > 100);",
+        "rewr2": "WITH high_budget_depts AS (SELECT id FROM depts WHERE budget > 100) SELECT name FROM emps WHERE dept_id IN (SELECT id FROM high_budget_depts) OR manager_id IN (SELECT id FROM high_budget_depts);"
+    },
+    "R2": {
+        "orig": "SELECT id FROM t WHERE val = 1 UNION SELECT id FROM t WHERE val = 2;",
+        "rewr": "SELECT id FROM t WHERE val IN (1, 2);",
+        "orig2": "SELECT id, name FROM users JOIN orders ON users.id = orders.user_id WHERE orders.total > 100 UNION SELECT id, name FROM users JOIN orders ON users.id = orders.user_id WHERE orders.status = 'urgent';",
+        "rewr2": "SELECT DISTINCT u.id, u.name FROM users u JOIN orders o ON u.id = o.user_id WHERE o.total > 100 OR o.status = 'urgent';"
+    },
+    "R3": {
+        "orig": "SELECT * FROM t WHERE status = 'active' AND status = 'active';",
+        "rewr": "SELECT * FROM t WHERE status = 'active';",
+        "orig2": "SELECT * FROM products WHERE price > 50 AND category = 'electronics' AND price > 50;",
+        "rewr2": "SELECT * FROM products WHERE price > 50 AND category = 'electronics';"
+    },
+    "R4": {
+        "orig": "SELECT t1.val FROM t1 JOIN t2 ON t1.id = t2.t1_id WHERE t2.status = 'open';",
+        "rewr": "SELECT t1.val FROM t1 WHERE t1.id IN (SELECT t1_id FROM t2 WHERE status = 'open');",
+        "orig2": "SELECT o.order_date FROM orders o JOIN customers c ON o.customer_id = c.id WHERE c.id = 123;",
+        "rewr2": "SELECT order_date FROM orders WHERE customer_id = 123;"
+    },
+    "R5": {
+        "orig": "SELECT * FROM t1 WHERE id IN (SELECT t1_id FROM t2 WHERE rare_flag = true);",
+        "stats": "Subquery selectivity is high (many rows match).",
+        "rewr": "SELECT * FROM t1 WHERE EXISTS (SELECT 1 FROM t2 WHERE t2.t1_id = t1.id AND rare_flag = true);",
+        "orig2": "SELECT * FROM employees WHERE dept_id EXISTS (SELECT 1 FROM departments WHERE region = 'North');",
+        "stats2": "Subquery selectivity is low (few rows match).",
+        "rewr2": "SELECT * FROM employees WHERE dept_id IN (SELECT id FROM departments WHERE region = 'North');"
+    },
+    "R6": {
+        "orig": "SELECT * FROM t a JOIN t b ON a.id = b.parent_id WHERE a.category = 'X' AND b.category = 'X';",
+        "stats": "Filter predicate 'category = X' has low selectivity (filters out most rows).",
+        "rewr": "WITH filtered_t AS (SELECT * FROM t WHERE category = 'X') SELECT * FROM filtered_t a JOIN filtered_t b ON a.id = b.parent_id;",
+        "orig2": "SELECT * FROM logs l1 JOIN logs l2 ON l1.user_id = l2.user_id WHERE l1.error_code = 500 AND l2.error_code = 500 AND l1.timestamp > '2023-01-01';",
+        "stats2": "Filter predicate 'error_code = 500' has low selectivity.",
+        "rewr2": "WITH errors AS (SELECT * FROM logs WHERE error_code = 500) SELECT * FROM errors l1 JOIN errors l2 ON l1.user_id = l2.user_id WHERE l1.timestamp > '2023-01-01';"
+    }
+}

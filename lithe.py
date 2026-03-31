@@ -6,6 +6,7 @@ import json
 from sqlalchemy import text, create_engine
 from sqlalchemy.exc import DatabaseError
 import time
+from prompts import get_prompt_3
 
 load_dotenv()
 
@@ -100,77 +101,16 @@ def get_optimizer_cost(query: str, execute: bool = False) -> float:
             return plan_data[0]["Plan"]["Actual Total Time"]
         else:
             return plan_data[0]["Plan"]["Total Cost"]
-
-
-def rewrite_query_prompt_4(system_prompt: str, user_prompt: str):
-    messages = [
-        {"role": "system", "content": system_prompt}
-    ]
-
-    part1, sep2, rest = user_prompt.partition("2. ")
-    part2, sep3, part3 = rest.partition("3. ")
-
-    step_1_prompt = part1.strip()
-    step_2_prompt = (sep2 + part2).strip()
-    step_3_prompt = (sep3 + part3).strip()
-
-    for prompt in [step_1_prompt, step_2_prompt, step_3_prompt]:
-        messages.append({"role": "user", "content": prompt})
-        llm_response = prompt_llm(messages)
-        messages.append({"role": "assistant", "content": llm_response})
-    
-    return llm_response, messages
     
 
-def rewrite_query(system_prompt: str, user_prompt: str, prompts_id: int = -1, max_retries: int = 5):
-    if prompts_id == 4:
-        llm_response, messages = rewrite_query_prompt_4(system_prompt, user_prompt)
-    else:
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
-        llm_response = prompt_llm(messages)
-
-    print("\n" + "="*50)
-    print("🤖 LLM RAW RESPONSE:")
-    print("="*50)
-    print(llm_response)
-    print("="*50)
-
-    print("\n[MANUAL INPUT REQUIRED]")
-    print("Please copy and paste the extracted SQL query from the response above.")
-    print("When you are finished, type 'END' on a new line and press Enter:\n")
-    
-    user_lines = []
-    while True:
-        try:
-            line = input()
-            # Stop recording if you type 'END' (case-insensitive)
-            if line.strip().upper() == 'END':
-                break
-            if line.strip().upper() == 'SKIP':
-                raise RuntimeError(f"Skipping this query as per user request.")
-            user_lines.append(line)
-        except EOFError:
-            break
-
-    query_rewr = "\n".join(user_lines).strip()
-
-    # Alternatively automate the SQL extraction using the LLM itself if the sql is expected in the [REWRITTEN] section of the prompt
-    # query_rewr = extract_sql_with_llm(llm_response)    
-    # print(f"\n\n{query_rewr}\n\n")
-    
-    if not query_rewr:
-        return None, 0.0
-    
+def extract_cost(query_rewr: str, llm_response: str, messages: list, max_retries: int = 5):
     for attempt in range(max_retries):
         try:
             cost = get_optimizer_cost(query_rewr)
             
             print(f"  [Success] Valid SQL obtained on attempt {attempt + 1}.")
             
-            return query_rewr, cost
+            return cost
             
         except DatabaseError as e:
             raw_db_error = str(e.orig).strip()
@@ -194,4 +134,65 @@ def rewrite_query(system_prompt: str, user_prompt: str, prompts_id: int = -1, ma
             break
             
     print("Maximum retries reached. Could not produce a valid SQL rewrite.")
-    return None, 0.0
+    return 0.0
+
+
+def evaluate_single_prompt(messages: list, extract_sql_manually: bool = True, max_retries: int = 3) -> float:
+    current_messages = list(messages)
+    llm_response = prompt_llm(current_messages)
+        
+    print("\n" + "="*50)
+    print("🤖 LLM RAW RESPONSE:")
+    print("="*50)
+    print(llm_response)
+    print("="*50)
+
+    if extract_sql_manually:
+        query_rewr = extract_sql_temrinal()
+    else:
+        query_rewr = extract_sql_with_llm(llm_response)
+    
+    if not query_rewr:
+        return 0.0
+            
+    return extract_cost(query_rewr, llm_response, messages, max_retries)
+
+
+def extract_sql_temrinal() -> str:
+    print("\n[MANUAL INPUT REQUIRED]")
+    print("Please copy and paste the extracted SQL query from the response above.")
+    print("When you are finished, type 'END' on a new line and press Enter:\n")
+    
+    user_lines = []
+    while True:
+        try:
+            line = input()
+            if line.strip().upper() == 'END':
+                break
+            if line.strip().upper() == 'SKIP':
+                raise RuntimeError(f"Skipping this query as per user request.")
+            user_lines.append(line)
+        except EOFError:
+            break
+
+    return "\n".join(user_lines).strip()
+
+
+def evaluate_prompt_4(query: str) -> float:
+    sys_3, usr_3 = get_prompt_3(query)
+    messages = [{"role": "system", "content": sys_3}]
+    
+    # Split the steps from the prompt string
+    part1, sep2, rest = usr_3.partition("2. ")
+    part2, sep3, part3 = rest.partition("3. ")
+    steps = [part1.strip(), (sep2 + part2).strip(), (sep3 + part3).strip()]
+    
+    for i, step in enumerate(steps):
+        messages.append({"role": "user", "content": step})
+        if i < 2:
+            resp = prompt_llm(messages)
+            messages.append({"role": "assistant", "content": resp})
+        else:
+            return evaluate_single_prompt(messages)
+            
+    return 0.0
